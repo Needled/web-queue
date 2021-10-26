@@ -18,13 +18,13 @@ import {getFirestore} from "firebase/firestore";
 import {initializeApp} from 'firebase/app';
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDXitG7S0IlBl3JdNq7QRM8-pCY4bHO8hI",
-    authDomain: "web-queue-bc0e0.firebaseapp.com",
-    projectId: "web-queue-bc0e0",
-    storageBucket: "web-queue-bc0e0.appspot.com",
-    messagingSenderId: "712142366835",
-    appId: "1:712142366835:web:dda9ea5c991bc733a8a206",
-    measurementId: "G-EZMXJ7VJVB"
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: "",
+    measurementId: ""
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
