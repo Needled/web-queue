@@ -4,15 +4,17 @@ import {
     collection,
     addDoc,
     doc,
-    setDoc,
     getDoc,
+    setDoc,
     getDocs,
     onSnapshot,
     query,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     limit,
     serverTimestamp,
     DocumentData,
-    QuerySnapshot
+    QuerySnapshot,
+    runTransaction
 } from 'firebase/firestore';
 import {getFirestore} from "firebase/firestore";
 import {initializeApp} from 'firebase/app';
@@ -31,7 +33,6 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore();
 
-/* Firestore doesn't play very nice with typescript :) */
 export interface QueueMetadata {
     currentPosition: number;
     lastInQueue: number;
@@ -44,8 +45,8 @@ export interface Customer {
 
 function App() {
     const [userName, setUserName] = useState("");
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [queueName, setQueueName] = useState("myQueue"); // collection should be initialized based on queue we are working on -> each customer(corporate) gets his own queue collection
-    const [queueMetaSnapshot, setQueueMetaSnapshot] = useState<QueueMetadata>({currentPosition: 0, lastInQueue: 0});
     const [queueSnapshot, setQueueSnapshot] = useState<Customer[]>([]);
     const queueCollection = collection(db, queueName);
     const metadata = doc(db, 'metadata/' + queueName);
@@ -74,20 +75,18 @@ function App() {
         return onSnapshot(metadata, (metaSnapshot) => {
             if (metaSnapshot.exists()) {
                 getDocs(queryForQueueDocs).then(queueData => {
-                        setQueueMetaSnapshot({
-                            currentPosition: metaSnapshot.data().currentPosition,
-                            lastInQueue: metaSnapshot.data().lastInQueue
-                        });
                         updateQueueInformation(queueData, metaSnapshot.data().currentPosition)
                     },
                     err => console.error('Error fetching queue information: ', err));
                 console.log('Setting queue metadata information');
                 console.log(metaSnapshot.data());
+            } else {
+                // init metadata if doc is missing
+                setDoc(metadata, {currentPosition: 0, lastInQueue: 0}).catch(err => console.error('Unable to initialize metadata queue: ', err));
             }
         });
     }, []);
 
-    // need to somehow ensure that the effects run in order and states are written before execution proceeds (haven't figured how to avoid the second call)
     useEffect(() => {
         return onSnapshot(queryForQueueDocs, (queueData) => {
             getDoc(metadata).then(meta => {
@@ -101,23 +100,34 @@ function App() {
 
     const addToQueue = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        addDoc(queueCollection, {
-            userName: userName,
-            position: queueMetaSnapshot.lastInQueue + 1,
-            timestamp: serverTimestamp()
-        }).then(
-            docRef => {
-                //update queue metadata
-                let newMetaSnapshot = {
-                    currentPosition: queueMetaSnapshot.currentPosition,
-                    lastInQueue: queueMetaSnapshot.lastInQueue + 1
-                };
-                setDoc(metadata, newMetaSnapshot).then(() => console.log('Updated metadata snapshot with new queue entry'), err => console.error('Could not update metadata snapshot: ', err));
-                console.log('Document written with id: ', docRef.id);
-            },
-            err => console.error('Error adding customer to queue: ', err)
-        );
+        // run as transaction, to ensure atomic incrementing in queue and no 2 customers with same queue position
+        runTransaction(db, async (transaction) => {
+            const newMeta = await transaction.get(metadata);
+            if(newMeta.exists()) {
+                const newLastInQueue = newMeta.data().lastInQueue+1;
+                transaction.update(metadata, {lastInQueue: newLastInQueue});
+                addDoc(queueCollection, {
+                    userName: userName,
+                    position: newLastInQueue,
+                    timestamp: serverTimestamp()
+                }).then(
+                    docRef => console.log('Document written with id: ', docRef.id),
+                    error => console.error('Error adding customer to queue: ', error)
+                );
+            }
+        });
         setUserName(""); // reset form
+    }
+
+    // for demo convenience only - should normally be moved to some backend api layer
+    const incrementQueue = () => {
+        runTransaction(db, async (transaction) => {
+            const newMeta = await transaction.get(metadata);
+            if(newMeta.exists()) {
+                const newCurrentPosition = newMeta.data().currentPosition+1;
+                transaction.update(metadata, {currentPosition: newCurrentPosition});
+            }
+        });
     }
 
     return (
@@ -139,6 +149,8 @@ function App() {
                     </tr>)}
                     </tbody>
                 </table>
+                {/*for demo purposes only*/}
+                <button className='button-base' type="button" onClick={incrementQueue}> Next customer! </button>
             </header>
         </div>
     );
